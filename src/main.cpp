@@ -15,10 +15,10 @@
 #define PID_D 0.01
 
 // пины энкодеров
-#define OPTO_FL 10
-#define OPTO_FR 11
-#define OPTO_BL 12
-#define OPTO_BR 13
+#define OPTO_FL 17
+#define OPTO_FR 14
+#define OPTO_BL 16
+#define OPTO_BR 15
 
 // при запуске крутятся ВПЕРЁД по очереди:
 // FL - передний левый
@@ -51,11 +51,11 @@ public:
         bool curState = pinRead(_pin);  // опрос
         if (_lastState != curState) {   // словили изменение
             _lastState = curState;
-            if (curState) {           // по фронту
-                _counter += direction;  // запомнили поворот
+            if (curState) {               // по фронту
+                _counter += direction;      // запомнили поворот
             }
         }
-        return _counter;  // вернули
+        return _counter;                // вернули
     }
 
 private:
@@ -150,26 +150,13 @@ void setup() {
     motorFL.kd = PID_D;
     motorBR.kd = PID_D;
     motorBL.kd = PID_D;
+//#include "encoder.h"  // мини-класс для щелевого датчика
+    encCounter encFL(OPTO_FL);
+    encCounter encFR(OPTO_FR);
+    encCounter encBL(OPTO_BL);
+    encCounter encBR(OPTO_BR);
+//
 
-//    Serial.println("front left");
-//    motorFL.run(FORWARD, 100);
-//    delay(3000);
-//    motorFL.run(STOP);
-//    delay(1000);
-//    Serial.println("front right");
-//    motorFR.run(FORWARD, 100);
-//    delay(3000);
-//    motorFR.run(STOP);
-//    delay(1000);
-//    Serial.println("back left");
-//    motorBL.run(FORWARD, 100);
-//    delay(3000);
-//    motorBL.run(STOP);
-//    delay(1000);
-//    Serial.println("back right");
-//    motorBR.run(FORWARD, 100);
-//    delay(3000);
-//    motorBR.run(STOP);
 
 }
 
@@ -188,6 +175,10 @@ uint32_t tmr;
 uint32_t radio_tmr;
 
 void loop(void) {
+    encFR.update(motorFR.getState());
+    encBR.update(motorBR.getState());
+    encFL.update(motorFL.getState());
+    encBL.update(motorBL.getState());
     byte pipeNo;
     while (radio.available(&pipeNo)) {  // слушаем эфир со всех труб
         radio.read(&val, sizeof(int)*9);              // чиатем входящий сигнал
@@ -239,12 +230,12 @@ void loop(void) {
     bool m3 = motorFL.tick(encFL.update(motorFL.getState()));
     bool m4 = motorBL.tick(encBL.update(motorBL.getState()));
 }
-ISR(PCINT0_vect) {  // пины 8-13
-    encFR.update(motorFR.getState());
-    encBR.update(motorBR.getState());
-    encFL.update(motorFL.getState());
-    encBL.update(motorBL.getState());
-}
+//ISR(PCINT0_vect) {  // пины 8-13
+//    encFR.update(motorFR.getState());
+//    encBR.update(motorBR.getState());
+//    encFL.update(motorFL.getState());
+//    encBL.update(motorBL.getState());
+//}
 
 // функция для настройки PCINT
 uint8_t attachPCINT(uint8_t pin) {
@@ -256,7 +247,7 @@ uint8_t attachPCINT(uint8_t pin) {
         PCICR |= (1 << PCIE1);
         PCMSK1 |= (1 << pin - 14);
         return 1;
-    } else {  // D8-D13 (PCINT0)
+    } else  {  // D8-D13 (PCINT0)
         PCICR |= (1 << PCIE0);
         PCMSK0 |= (1 << pin - 8);
         return 0;

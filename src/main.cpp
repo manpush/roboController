@@ -1,13 +1,23 @@
 #include <SPI.h>
+#include <Wire.h>
 #include "nRF24L01.h"
 #include "RF24.h"
 #include <AccelMotor.h>
+#include "ServoSmooth.h"
 
 #define MAX_SPEED 70          // максимальная скорость моторов, в тиках в секунду!
 #define MIN_DUTY 50           // мин. сигнал, при котором мотор начинает движение
 #define STEP_SIZE 50          // перемещение по кнопкам крестовины (в тиках)
 #define ACCEL 7               // ускорение
 #define MAX_FOLLOW_SPEED 500  // макс. скорость
+
+#define MAX_ANGLE_SPEED 0.5
+#define MAX_HAND_SPEED 0.5
+
+#define MIN_ANGLE 10
+#define MAX_ANGLE 150
+#define MIN_HAND 0
+#define MAX_HAND 90
 
 // коэффициенты ПИД
 #define PID_P 2.2
@@ -84,8 +94,15 @@ RF24 radio(1, 10);  // модуль
 byte address[][6] = { "1Node", "2Node", "3Node", "4Node", "5Node", "6Node" };  // возможные номера труб
 int val[3][3];
 
+ServoSmooth servo;
+ServoSmooth servoHand;
+
 void setup() {
     Serial.begin(9600);        // открываем порт для связи с ПК
+
+    servo.attach(19);
+    servoHand.attach(18);
+
     radio.begin();             // активировать модуль
     radio.setAutoAck(1);       // режим подтверждения приёма, 1 вкл 0 выкл
     radio.setRetries(0, 15);   // (время между попыткой достучаться, число попыток)
@@ -150,13 +167,23 @@ void setup() {
     motorFL.kd = PID_D;
     motorBR.kd = PID_D;
     motorBL.kd = PID_D;
-//#include "encoder.h"  // мини-класс для щелевого датчика
     encCounter encFL(OPTO_FL);
     encCounter encFR(OPTO_FR);
     encCounter encBL(OPTO_BL);
     encCounter encBR(OPTO_BR);
 //
 
+    servo.setSpeed(1000);  // ограничить скорость
+    servo.setAccel(1.0);    // установить ускорение (разгон и торможение)
+    servo.setMaxAngle(MAX_ANGLE);
+    servo.setTargetDeg(0);
+//    servo.setAutoDetach(false);
+
+    servoHand.setSpeed(1000);  // ограничить скорость
+    servoHand.setAccel(1.0);    // установить ускорение (разгон и торможение)
+    servoHand.setMaxAngle(MAX_HAND);
+    servoHand.setTargetDeg(0);
+//    servoHand.setAutoDetach(false);
 
 }
 
@@ -175,10 +202,17 @@ uint32_t tmr;
 uint32_t radio_tmr;
 
 void loop(void) {
-    encFR.update(motorFR.getState());
-    encBR.update(motorBR.getState());
-    encFL.update(motorFL.getState());
-    encBL.update(motorBL.getState());
+//    static bool kek = false;
+//    static uint32_t timer;
+//    servo.tick();
+//
+//    if (millis() - timer > 3000) {
+//        kek = !kek;
+//        timer = millis();
+//        servo.setTargetDeg(kek ? 90 : 180);
+//        Serial.print(servo.getTargetDeg());
+//    }
+
     byte pipeNo;
     while (radio.available(&pipeNo)) {  // слушаем эфир со всех труб
         radio.read(&val, sizeof(int)*9);              // чиатем входящий сигнал
@@ -201,6 +235,9 @@ void loop(void) {
             int val0Z = map(val[0][0], -3, 3, -MAX_SPEED, MAX_SPEED);
             int val0X = map(val[0][1], -3, 3, -MAX_SPEED, MAX_SPEED);
             int val0Y = map(val[0][2], -3, 3, -MAX_SPEED, MAX_SPEED);
+
+            int val1Y = map(val[1][0], -3, 3, MIN_ANGLE_SPEED, MAX_ANGLE_SPEED);
+            int val1X = map(val[1][0], -3, 3, MIN_HAND_SPEED, MAX_HAND_SPEED);
 
             int dutyFR = val0Y + val0X;
             int dutyFL = val0Y - val0X;

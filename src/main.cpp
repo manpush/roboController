@@ -3,7 +3,7 @@
 #include "nRF24L01.h"
 #include "RF24.h"
 #include <AccelMotor.h>
-#include "ServoSmooth.h"
+#include "ServoDriverSmooth.h"
 
 #define MAX_SPEED 70          // максимальная скорость моторов, в тиках в секунду!
 #define MIN_DUTY 50           // мин. сигнал, при котором мотор начинает движение
@@ -11,18 +11,18 @@
 #define ACCEL 7               // ускорение
 #define MAX_FOLLOW_SPEED 500  // макс. скорость
 
-#define MAX_ANGLE_SPEED 0.5
-#define MAX_HAND_SPEED 0.5
+#define MAX_SHOULDER_SPEED 5
+#define MAX_HAND_SPEED 5
 
-#define MIN_ANGLE 10
-#define MAX_ANGLE 150
+#define MIN_SHOULDER 0
+#define MAX_SHOULDER 180
 #define MIN_HAND 0
-#define MAX_HAND 90
+#define MAX_HAND 50
 
 // коэффициенты ПИД
-#define PID_P 2.2
-#define PID_I 0.4
-#define PID_D 0.01
+#define PID_P 2.2 //2.2
+#define PID_I 1 //0.4
+#define PID_D 0.01 //0.01
 
 // пины энкодеров
 #define OPTO_FL 17
@@ -84,6 +84,23 @@ private:
     }
 };
 
+// функция для настройки PCINT
+uint8_t attachPCINT(uint8_t pin) {
+    if (pin < 14) {  // D0-D13 (PCINT2)
+        PCICR |= (1 << PCIE2);
+        PCMSK2 |= (1 << pin);
+        return 2;
+    } else if (pin > 17) {  //A4-A5 (PCINT1)
+        PCICR |= (1 << PCIE1);
+        PCMSK1 |= (1 << pin - 14);
+        return 1;
+    } else  {  // a0-a3 (PCINT0)
+        PCICR |= (1 << PCIE0);
+        PCMSK0 |= (1 << pin - 8);
+        return 0;
+    }
+}
+
 encCounter encFL(OPTO_FL);
 encCounter encFR(OPTO_FR);
 encCounter encBL(OPTO_BL);
@@ -92,16 +109,25 @@ encCounter encBR(OPTO_BR);
 RF24 radio(1, 10);  // модуль
 
 byte address[][6] = { "1Node", "2Node", "3Node", "4Node", "5Node", "6Node" };  // возможные номера труб
-int val[3][3];
+int val[9];
 
-ServoSmooth servo;
-ServoSmooth servoHand;
+
+ServoDriverSmooth servo;
+ServoDriverSmooth servoHand;
+
+int angleHand;
+int angleShoulder;
 
 void setup() {
+    attachPCINT(OPTO_FL);
+    attachPCINT(OPTO_FR);
+    attachPCINT(OPTO_BL);
+    attachPCINT(OPTO_BR);
+
     Serial.begin(9600);        // открываем порт для связи с ПК
 
-    servo.attach(19);
-    servoHand.attach(18);
+    servo.attach(0);
+    servoHand.attach(1);
 
     radio.begin();             // активировать модуль
     radio.setAutoAck(1);       // режим подтверждения приёма, 1 вкл 0 выкл
@@ -174,16 +200,39 @@ void setup() {
 //
 
     servo.setSpeed(1000);  // ограничить скорость
-    servo.setAccel(1.0);    // установить ускорение (разгон и торможение)
-    servo.setMaxAngle(MAX_ANGLE);
-    servo.setTargetDeg(0);
+    servo.setAccel(0.1);    // установить ускорение (разгон и торможение)
+    servo.setMaxAngle(180);
+    servo.setTargetDeg(90);
 //    servo.setAutoDetach(false);
-
+    angleShoulder = 90;
+//
     servoHand.setSpeed(1000);  // ограничить скорость
-    servoHand.setAccel(1.0);    // установить ускорение (разгон и торможение)
-    servoHand.setMaxAngle(MAX_HAND);
-    servoHand.setTargetDeg(0);
+    servoHand.setAccel(0.1);    // установить ускорение (разгон и торможение)
+    servoHand.setMaxAngle(180);
+    servoHand.setTargetDeg(90);
 //    servoHand.setAutoDetach(false);
+    angleHand = 90;
+
+//    Serial.println("front left");
+//    motorFL.run(FORWARD, 100);
+//    delay(3000);
+//    motorFL.run(STOP);
+//    delay(1000);
+//    Serial.println("front right");
+////    digitalWrite(9, 1);
+//    motorFR.run(FORWARD, 100);
+//    delay(3000);
+//    motorFR.run(STOP);
+//    delay(1000);
+//    Serial.println("back left");
+//    motorBL.run(FORWARD, 100);
+//    delay(3000);
+//    motorBL.run(STOP);
+//    delay(1000);
+//    Serial.println("back right");
+//    motorBR.run(FORWARD, 100);
+//    delay(3000);
+//    motorBR.run(STOP);
 
 }
 
@@ -200,6 +249,11 @@ void updatePos() {
 }
 uint32_t tmr;
 uint32_t radio_tmr;
+int slice(int val, int from, int to) {
+    if (val > to) return to;
+    else if (val<from) return from;
+    else return val;
+}
 
 void loop(void) {
 //    static bool kek = false;
@@ -219,25 +273,30 @@ void loop(void) {
 //        Serial.print(   map(val[0][0],-3, 3, -MAX_SPEED, MAX_SPEED)); Serial.print(",");
 //        Serial.print(   map(val[0][1],-3, 3, -MAX_SPEED, MAX_SPEED)); Serial.print(",");
 //        Serial.println( map(val[0][2],-3, 3, -MAX_SPEED, MAX_SPEED));
-        Serial.print(   val[0][0]); Serial.print(",");
-        Serial.print(   val[0][1]); Serial.print(",");
-        Serial.println( val[0][2]);
+        Serial.print(val[0]); Serial.print(" ");
+        Serial.print(val[1]); Serial.print(" ");
+        Serial.print(val[2]); Serial.print(" ");
+        Serial.print(val[3]); Serial.print(" ");
+        Serial.print(val[4]); Serial.print(" ");
+        Serial.print(val[5]); Serial.println(" ");
+//        Serial.print(val[6]); Serial.print(" ");
+//        Serial.print(val[7]); Serial.print(" ");
+//        Serial.print(val[8]); Serial.print(" "); Serial.println(sizeof(int)*9);
+//        if (val[0]>0) digitalWrite(13, 1);
         // отправляем обратно то что приняли
         radio.writeAckPayload(pipeNo, &val, sizeof(int)*9);
-        Serial.print("Recieved");
         // Serial.println(val[0][0]);
         radio_tmr = millis();
 
         if (millis() - tmr >= 50) {
             tmr += 50;
 
-            // переводим диапазон 0..255 в -MAX_SPEED..MAX_SPEED
-            int val0Z = map(val[0][0], -3, 3, -MAX_SPEED, MAX_SPEED);
-            int val0X = map(val[0][1], -3, 3, -MAX_SPEED, MAX_SPEED);
-            int val0Y = map(val[0][2], -3, 3, -MAX_SPEED, MAX_SPEED);
+            int val0Z = map(val[0], -3, 3, -MAX_SPEED, MAX_SPEED);
+            int val0X = map(val[1], -3, 3, -MAX_SPEED, MAX_SPEED);
+            int val0Y = map(val[2], 3, -3, -MAX_SPEED, MAX_SPEED);
 
-            int val1Y = map(val[1][0], -3, 3, MIN_ANGLE_SPEED, MAX_ANGLE_SPEED);
-            int val1X = map(val[1][0], -3, 3, MIN_HAND_SPEED, MAX_HAND_SPEED);
+            int val1Y = map(val[4], -3, 3, -MAX_SHOULDER_SPEED, MAX_SHOULDER_SPEED);
+            int val1X = map(val[5], 3, -3, -MAX_HAND_SPEED, MAX_HAND_SPEED);
 
             int dutyFR = val0Y + val0X;
             int dutyFL = val0Y - val0X;
@@ -249,11 +308,20 @@ void loop(void) {
             dutyBR += -val0Z;
             dutyBL += +val0Z;
 
-            // ПИД контроль скорости
+
+            angleHand = slice(angleHand + val1X, MIN_HAND, MAX_HAND);
+            angleShoulder = slice(angleShoulder + val1Y, MIN_SHOULDER, MAX_SHOULDER);
+            Serial.print(angleShoulder); Serial.print(" ");
+            Serial.println(angleHand);
+
+//            // ПИД контроль скорости
             motorFR.setTargetSpeed(dutyFR);
             motorBR.setTargetSpeed(dutyBR);
             motorFL.setTargetSpeed(dutyFL);
             motorBL.setTargetSpeed(dutyBL);
+
+            servo.setTargetDeg(angleShoulder);
+            servoHand.setTargetDeg(angleHand);
         }
     }
     if (millis()-radio_tmr>=1000){
@@ -262,31 +330,19 @@ void loop(void) {
         motorFL.setTargetSpeed(0);
         motorBL.setTargetSpeed(0);
     }
-    bool m1 = motorFR.tick(encFR.update(motorFR.getState()));
-    bool m2 = motorBR.tick(encBR.update(motorBR.getState()));
-    bool m3 = motorFL.tick(encFL.update(motorFL.getState()));
-    bool m4 = motorBL.tick(encBL.update(motorBL.getState()));
+    servo.tick();
+    servoHand.tick();
+    motorFR.tick(encFR.update(motorFR.getState()));
+    motorBR.tick(encBR.update(motorBR.getState()));
+    motorFL.tick(encFL.update(motorFL.getState()));
+    motorBL.tick(encBL.update(motorBL.getState()));
 }
-//ISR(PCINT0_vect) {  // пины 8-13
-//    encFR.update(motorFR.getState());
-//    encBR.update(motorBR.getState());
-//    encFL.update(motorFL.getState());
-//    encBL.update(motorBL.getState());
-//}
 
-// функция для настройки PCINT
-uint8_t attachPCINT(uint8_t pin) {
-    if (pin < 8) {  // D0-D7 (PCINT2)
-        PCICR |= (1 << PCIE2);
-        PCMSK2 |= (1 << pin);
-        return 2;
-    } else if (pin > 13) {  //A0-A5 (PCINT1)
-        PCICR |= (1 << PCIE1);
-        PCMSK1 |= (1 << pin - 14);
-        return 1;
-    } else  {  // D8-D13 (PCINT0)
-        PCICR |= (1 << PCIE0);
-        PCMSK0 |= (1 << pin - 8);
-        return 0;
-    }
+
+
+ISR(PCINT0_vect) {
+    encFR.update(motorFR.getState());
+    encBR.update(motorBR.getState());
+    encFL.update(motorFL.getState());
+    encBL.update(motorBL.getState());
 }

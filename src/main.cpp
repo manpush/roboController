@@ -291,8 +291,8 @@ void loop(void) {
         if (millis() - tmr >= 50) {
             tmr += 50;
 
-            int val0Z = map(val[0], -3, 3, -MAX_SPEED, MAX_SPEED);
-            int val0X = map(val[1], -3, 3, -MAX_SPEED, MAX_SPEED);
+            int val0X = map(val[0], 3, -3, -MAX_SPEED, MAX_SPEED);
+            int val0Z = map(val[1], -3, 3, -MAX_SPEED, MAX_SPEED);
             int val0Y = map(val[2], 3, -3, -MAX_SPEED, MAX_SPEED);
 
             int val1Y = map(val[4], -3, 3, -MAX_SHOULDER_SPEED, MAX_SHOULDER_SPEED);
